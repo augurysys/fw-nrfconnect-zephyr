@@ -66,6 +66,11 @@ config LIS2DW12_INT_PIN_2
 	bool "int2"
 endchoice
 
+config LIS2DW12_ENABLE_TEMP
+	bool "Enable temperature"
+	help
+	  Enable/disable temperature
+
 menuconfig LIS2DW12_PULSE
 	bool "Pulse detection"
 	help

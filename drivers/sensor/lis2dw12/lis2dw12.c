@@ -45,9 +45,8 @@ static int lis2dw12_set_range(struct device *dev, u16_t range)
 
 	if (!err) {
 		/* save internally gain for optimization */
-		lis2dw12->gain =
-			LIS2DW12_FS_TO_GAIN(LIS2DW12_FS_TO_REG(range),
-					    shift_gain);
+		lis2dw12->gain = LIS2DW12_FS_TO_GAIN(LIS2DW12_FS_TO_REG(range),
+						     shift_gain);
 	}
 
 	return err;
@@ -69,7 +68,7 @@ static int lis2dw12_set_odr(struct device *dev, u16_t odr)
 					      LIS2DW12_XL_ODR_OFF);
 	}
 
-	val =  LIS2DW12_ODR_TO_REG(odr);
+	val = LIS2DW12_ODR_TO_REG(odr);
 	if (val > LIS2DW12_XL_ODR_1k6Hz) {
 		LOG_ERR("ODR too high");
 		return -ENOTSUP;
@@ -90,13 +89,12 @@ static inline void lis2dw12_convert(struct sensor_value *val, int raw_val,
 	val->val2 = dval % 1000000LL;
 }
 
-static inline void lis2dw12_channel_get_acc(struct device *dev,
-					     enum sensor_channel chan,
-					     struct sensor_value *val)
+static inline void lis2dw12_channel_get_acc(struct lis2dw12_data *lis2dw12,
+					    enum sensor_channel chan,
+					    struct sensor_value *val)
 {
 	int i;
 	u8_t ofs_start, ofs_stop;
-	struct lis2dw12_data *lis2dw12 = dev->driver_data;
 	struct sensor_value *pval = val;
 
 	switch (chan) {
@@ -110,37 +108,53 @@ static inline void lis2dw12_channel_get_acc(struct device *dev,
 		ofs_start = ofs_stop = 2U;
 		break;
 	default:
-		ofs_start = 0U; ofs_stop = 2U;
+		ofs_start = 0U;
+		ofs_stop = 2U;
 		break;
 	}
 
-	for (i = ofs_start; i <= ofs_stop ; i++) {
+	for (i = ofs_start; i <= ofs_stop; i++) {
 		lis2dw12_convert(pval++, lis2dw12->acc[i], lis2dw12->gain);
 	}
 }
 
-static int lis2dw12_channel_get(struct device *dev,
-				 enum sensor_channel chan,
-				 struct sensor_value *val)
+#if defined(CONFIG_LIS2DW12_ENABLE_TEMP)
+static void lis2dw12_channel_get_temp(struct sensor_value *val,
+				      struct lis2dw12_data *data)
 {
+	/* val = temp_sample / 256 + 25 */
+	val->val1 = data->temp_sample / 256 + 25;
+	val->val2 = (data->temp_sample % 256) * (1000000 / 256);
+}
+#endif
+
+static int lis2dw12_channel_get(struct device *dev, enum sensor_channel chan,
+				struct sensor_value *val)
+{
+	struct lis2dw12_data *data = dev->driver_data;
 	switch (chan) {
 	case SENSOR_CHAN_ACCEL_X:
 	case SENSOR_CHAN_ACCEL_Y:
 	case SENSOR_CHAN_ACCEL_Z:
 	case SENSOR_CHAN_ACCEL_XYZ:
-		lis2dw12_channel_get_acc(dev, chan, val);
-		return 0;
+		lis2dw12_channel_get_acc(data, chan, val);
+		break;
+#if defined(CONFIG_LIS2DW12_ENABLE_TEMP)
+	case SENSOR_CHAN_AMBIENT_TEMP:
+		lis2dw12_channel_get_temp(val, data);
+		break;
+#endif
 	default:
 		LOG_DBG("Channel not supported");
-		break;
+		return -ENOTSUP;
 	}
 
-	return -ENOTSUP;
+	return 0;
 }
 
 static int lis2dw12_config(struct device *dev, enum sensor_channel chan,
-			    enum sensor_attribute attr,
-			    const struct sensor_value *val)
+			   enum sensor_attribute attr,
+			   const struct sensor_value *val)
 {
 	switch (attr) {
 	case SENSOR_ATTR_FULL_SCALE:
@@ -156,8 +170,8 @@ static int lis2dw12_config(struct device *dev, enum sensor_channel chan,
 }
 
 static int lis2dw12_attr_set(struct device *dev, enum sensor_channel chan,
-			      enum sensor_attribute attr,
-			      const struct sensor_value *val)
+			     enum sensor_attribute attr,
+			     const struct sensor_value *val)
 {
 	switch (chan) {
 	case SENSOR_CHAN_ACCEL_X:
@@ -173,7 +187,24 @@ static int lis2dw12_attr_set(struct device *dev, enum sensor_channel chan,
 	return -ENOTSUP;
 }
 
-static int lis2dw12_sample_fetch(struct device *dev, enum sensor_channel chan)
+#if defined(CONFIG_LIS2DW12_ENABLE_TEMP)
+static int lis2dw12_sample_fetch_temp(struct device *dev)
+{
+	struct lis2dw12_data *data = dev->driver_data;
+	union axis1bit16_t buf;
+
+	if (lis2dw12_temperature_raw_get(data->ctx, buf.u8bit) < 0) {
+		LOG_DBG("Failed to read sample");
+		return -EIO;
+	}
+
+	data->temp_sample = sys_le16_to_cpu(buf.i16bit);
+
+	return 0;
+}
+#endif
+
+static int lis2dw12_sample_fetch_accel(struct device *dev)
 {
 	struct lis2dw12_data *lis2dw12 = dev->driver_data;
 	const struct lis2dw12_device_config *cfg = dev->config->config_info;
@@ -197,6 +228,30 @@ static int lis2dw12_sample_fetch(struct device *dev, enum sensor_channel chan)
 	lis2dw12->acc[1] = sys_le16_to_cpu(buf.i16bit[1]) >> shift;
 	lis2dw12->acc[2] = sys_le16_to_cpu(buf.i16bit[2]) >> shift;
 
+	return 0;
+}
+
+static int lis2dw12_sample_fetch(struct device *dev, enum sensor_channel chan)
+{
+	switch (chan) {
+	case SENSOR_CHAN_ACCEL_XYZ:
+		lis2dw12_sample_fetch_accel(dev);
+		break;
+#if defined(CONFIG_LIS2DW12_ENABLE_TEMP)
+	case SENSOR_CHAN_AMBIENT_TEMP:
+		lis2dw12_sample_fetch_temp(dev);
+		break;
+#endif
+	case SENSOR_CHAN_ALL:
+		lis2dw12_sample_fetch_accel(dev);
+#if defined(CONFIG_LIS2DW12_ENABLE_TEMP)
+		lis2dw12_sample_fetch_temp(dev);
+#endif
+		break;
+
+	default:
+		return -ENOTSUP;
+	}
 	return 0;
 }
 
@@ -232,7 +287,7 @@ static int lis2dw12_init_interface(struct device *dev)
 }
 
 static int lis2dw12_set_power_mode(struct lis2dw12_data *lis2dw12,
-				    lis2dw12_mode_t pm)
+				   lis2dw12_mode_t pm)
 {
 	u8_t regval = LIS2DW12_CONT_LOW_PWR_12bit;
 
@@ -278,8 +333,8 @@ static int lis2dw12_init(struct device *dev)
 
 	k_busy_wait(100);
 
-	if (lis2dw12_block_data_update_set(lis2dw12->ctx,
-					   PROPERTY_ENABLE) < 0) {
+	if (lis2dw12_block_data_update_set(lis2dw12->ctx, PROPERTY_ENABLE) <
+	    0) {
 		return -EIO;
 	}
 
@@ -297,10 +352,10 @@ static int lis2dw12_init(struct device *dev)
 		return -EIO;
 	}
 
-	lis2dw12->gain =
-		LIS2DW12_FS_TO_GAIN(LIS2DW12_ACC_FS,
-				    cfg->pm == LIS2DW12_CONT_LOW_PWR_12bit ?
-				    LIS2DW12_SHFT_GAIN_NOLP1 : 0);
+	lis2dw12->gain = LIS2DW12_FS_TO_GAIN(
+		LIS2DW12_ACC_FS, cfg->pm == LIS2DW12_CONT_LOW_PWR_12bit ?
+					 LIS2DW12_SHFT_GAIN_NOLP1 :
+					 0);
 
 #ifdef CONFIG_LIS2DW12_TRIGGER
 	if (lis2dw12_init_interrupt(dev) < 0) {
@@ -314,20 +369,20 @@ static int lis2dw12_init(struct device *dev)
 		return -EIO;
 	}
 
-	if (lis2dw12_tap_threshold_x_set(lis2dw12->ctx,
-					 cfg->pulse_ths[0]) < 0) {
+	if (lis2dw12_tap_threshold_x_set(lis2dw12->ctx, cfg->pulse_ths[0]) <
+	    0) {
 		LOG_ERR("Failed to set tap X axis threshold");
 		return -EIO;
 	}
 
-	if (lis2dw12_tap_threshold_y_set(lis2dw12->ctx,
-					 cfg->pulse_ths[1]) < 0) {
+	if (lis2dw12_tap_threshold_y_set(lis2dw12->ctx, cfg->pulse_ths[1]) <
+	    0) {
 		LOG_ERR("Failed to set tap Y axis threshold");
 		return -EIO;
 	}
 
-	if (lis2dw12_tap_threshold_z_set(lis2dw12->ctx,
-					 cfg->pulse_ths[2]) < 0) {
+	if (lis2dw12_tap_threshold_z_set(lis2dw12->ctx, cfg->pulse_ths[2]) <
+	    0) {
 		LOG_ERR("Failed to set tap Z axis threshold");
 		return -EIO;
 	}
@@ -401,5 +456,5 @@ const struct lis2dw12_device_config lis2dw12_cfg = {
 struct lis2dw12_data lis2dw12_data;
 
 DEVICE_AND_API_INIT(lis2dw12, DT_INST_0_ST_LIS2DW12_LABEL, lis2dw12_init,
-	     &lis2dw12_data, &lis2dw12_cfg, POST_KERNEL,
-	     CONFIG_SENSOR_INIT_PRIORITY, &lis2dw12_driver_api);
+		    &lis2dw12_data, &lis2dw12_cfg, POST_KERNEL,
+		    CONFIG_SENSOR_INIT_PRIORITY, &lis2dw12_driver_api);
