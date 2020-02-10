@@ -122,9 +122,10 @@ static inline void lis2dw12_channel_get_acc(struct lis2dw12_data *lis2dw12,
 static void lis2dw12_channel_get_temp(struct sensor_value *val,
 				      struct lis2dw12_data *data)
 {
-	/* val = temp_sample / 256 + 25 */
-	val->val1 = data->temp_sample / 256 + 25;
-	val->val2 = (data->temp_sample % 256) * (1000000 / 256);
+	/* val = temp_sample / 16 + 25 */
+	s32_t dval = (10000* data->temp_sample) / 16 + 25 * 10000;
+	val->val1 = dval /10000;
+	val->val2 = dval % 10000;
 }
 #endif
 
@@ -198,7 +199,7 @@ static int lis2dw12_sample_fetch_temp(struct device *dev)
 		return -EIO;
 	}
 
-	data->temp_sample = sys_le16_to_cpu(buf.i16bit);
+	data->temp_sample = sys_le16_to_cpu(buf.i16bit) >> 4;
 
 	return 0;
 }

@@ -117,7 +117,7 @@ struct lis2dw12_data {
 	/* save sensitivity */
 	u16_t gain;
 #if defined(CONFIG_LIS2DW12_ENABLE_TEMP)
-	int temp_sample;
+	s16_t temp_sample;
 #endif
 
 	stmdev_ctx_t *ctx;
