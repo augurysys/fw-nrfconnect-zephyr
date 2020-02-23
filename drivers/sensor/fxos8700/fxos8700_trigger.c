@@ -10,8 +10,7 @@
 
 LOG_MODULE_DECLARE(FXOS8700, CONFIG_SENSOR_LOG_LEVEL);
 
-static void fxos8700_gpio_callback(struct device *dev,
-				   struct gpio_callback *cb,
+static void fxos8700_gpio_callback(struct device *dev, struct gpio_callback *cb,
 				   u32_t pin_mask)
 {
 	struct fxos8700_data *data =
@@ -60,9 +59,8 @@ static int fxos8700_handle_pulse_int(struct device *dev)
 
 	k_sem_take(&data->sem, K_FOREVER);
 
-	if (i2c_reg_read_byte(data->i2c, config->i2c_address,
-			      FXOS8700_REG_PULSE_SRC,
-			      &pulse_source)) {
+	if (fxos8700_read(data->bus, FXOS8700_REG_PULSE_SRC,
+			      &pulse_source, 1)) {
 		LOG_ERR("Could not read pulse source");
 	}
 
@@ -98,9 +96,8 @@ static int fxos8700_handle_motion_int(struct device *dev)
 
 	k_sem_take(&data->sem, K_FOREVER);
 
-	if (i2c_reg_read_byte(data->i2c, config->i2c_address,
-			      FXOS8700_REG_FF_MT_SRC,
-			      &motion_source)) {
+	if (fxos8700_read(data->bus, FXOS8700_REG_FF_MT_SRC,
+			      &motion_source, 1)) {
 		LOG_ERR("Could not read pulse source");
 	}
 
@@ -124,9 +121,8 @@ static void fxos8700_handle_int(void *arg)
 
 	k_sem_take(&data->sem, K_FOREVER);
 
-	if (i2c_reg_read_byte(data->i2c, config->i2c_address,
-			      FXOS8700_REG_INT_SOURCE,
-			      &int_source)) {
+	if (fxos8700_read(data->bus, FXOS8700_REG_INT_SOURCE,
+			      &int_source, 1)) {
 		LOG_ERR("Could not read interrupt source");
 		int_source = 0U;
 	}
@@ -176,8 +172,7 @@ static void fxos8700_work_handler(struct k_work *work)
 }
 #endif
 
-int fxos8700_trigger_set(struct device *dev,
-			 const struct sensor_trigger *trig,
+int fxos8700_trigger_set(struct device *dev, const struct sensor_trigger *trig,
 			 sensor_trigger_handler_t handler)
 {
 	const struct fxos8700_config *config = dev->config->config_info;
@@ -233,9 +228,7 @@ int fxos8700_trigger_set(struct device *dev,
 	}
 
 	/* Configure the sensor interrupt */
-	if (i2c_reg_update_byte(data->i2c, config->i2c_address,
-				FXOS8700_REG_CTRLREG4,
-				mask,
+	if (fxos8700_reg_update_byte(data->bus, FXOS8700_REG_CTRLREG4, mask,
 				handler ? mask : 0)) {
 		LOG_ERR("Could not configure interrupt");
 		ret = -EIO;
@@ -261,38 +254,38 @@ static int fxos8700_pulse_init(struct device *dev)
 	const struct fxos8700_config *config = dev->config->config_info;
 	struct fxos8700_data *data = dev->driver_data;
 
-	if (i2c_reg_write_byte(data->i2c, config->i2c_address,
-			       FXOS8700_REG_PULSE_CFG, config->pulse_cfg)) {
+	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_CFG, config->pulse_cfg,
+			   1)) {
 		return -EIO;
 	}
 
-	if (i2c_reg_write_byte(data->i2c, config->i2c_address,
-			       FXOS8700_REG_PULSE_THSX, config->pulse_ths[0])) {
+	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_THSX,
+			   config->pulse_ths[0], 1)) {
 		return -EIO;
 	}
 
-	if (i2c_reg_write_byte(data->i2c, config->i2c_address,
-			       FXOS8700_REG_PULSE_THSY, config->pulse_ths[1])) {
+	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_THSY,
+			   config->pulse_ths[1], 1)) {
 		return -EIO;
 	}
 
-	if (i2c_reg_write_byte(data->i2c, config->i2c_address,
-			       FXOS8700_REG_PULSE_THSZ, config->pulse_ths[2])) {
+	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_THSZ,
+			   config->pulse_ths[2], 1)) {
 		return -EIO;
 	}
 
-	if (i2c_reg_write_byte(data->i2c, config->i2c_address,
-			       FXOS8700_REG_PULSE_TMLT, config->pulse_tmlt)) {
+	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_TMLT,
+			   config->pulse_tmlt, 1)) {
 		return -EIO;
 	}
 
-	if (i2c_reg_write_byte(data->i2c, config->i2c_address,
-			       FXOS8700_REG_PULSE_LTCY, config->pulse_ltcy)) {
+	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_LTCY,
+			   config->pulse_ltcy, 1)) {
 		return -EIO;
 	}
 
-	if (i2c_reg_write_byte(data->i2c, config->i2c_address,
-			       FXOS8700_REG_PULSE_WIND, config->pulse_wind)) {
+	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_WIND,
+			   config->pulse_wind, 1)) {
 		return -EIO;
 	}
 
@@ -307,27 +300,23 @@ static int fxos8700_motion_init(struct device *dev)
 	struct fxos8700_data *data = dev->driver_data;
 
 	/* Set Mode 4, Motion detection with ELE = 1, OAE = 1 */
-	if (i2c_reg_write_byte(data->i2c, config->i2c_address,
-			       FXOS8700_REG_FF_MT_CFG,
-			       FXOS8700_FF_MT_CFG_ELE |
-			       FXOS8700_FF_MT_CFG_OAE |
-			       FXOS8700_FF_MT_CFG_ZEFE |
-			       FXOS8700_FF_MT_CFG_YEFE |
-			       FXOS8700_FF_MT_CFG_XEFE)) {
+	if (fxos8700_write(data->bus, FXOS8700_REG_FF_MT_CFG,
+			   FXOS8700_FF_MT_CFG_ELE | FXOS8700_FF_MT_CFG_OAE |
+				   FXOS8700_FF_MT_CFG_ZEFE |
+				   FXOS8700_FF_MT_CFG_YEFE |
+				   FXOS8700_FF_MT_CFG_XEFE)) {
 		return -EIO;
 	}
 
 	/* Set motion threshold to maximimum */
-	if (i2c_reg_write_byte(data->i2c, config->i2c_address,
-			       FXOS8700_REG_FF_MT_THS,
-			       FXOS8700_REG_FF_MT_THS)) {
+	if (fxos8700_write(data->bus, FXOS8700_REG_FF_MT_THS,
+			   FXOS8700_REG_FF_MT_THS)) {
 		return -EIO;
 	}
 
 	return 0;
 }
 #endif
-
 
 int fxos8700_trigger_init(struct device *dev)
 {
@@ -338,9 +327,10 @@ int fxos8700_trigger_init(struct device *dev)
 #if defined(CONFIG_FXOS8700_TRIGGER_OWN_THREAD)
 	k_sem_init(&data->trig_sem, 0, UINT_MAX);
 	k_thread_create(&data->thread, data->thread_stack,
-			CONFIG_FXOS8700_THREAD_STACK_SIZE,
-			fxos8700_thread_main, dev, 0, NULL,
-			K_PRIO_COOP(CONFIG_FXOS8700_THREAD_PRIORITY), 0, K_NO_WAIT);
+			CONFIG_FXOS8700_THREAD_STACK_SIZE, fxos8700_thread_main,
+			dev, 0, NULL,
+			K_PRIO_COOP(CONFIG_FXOS8700_THREAD_PRIORITY), 0,
+			K_NO_WAIT);
 #elif defined(CONFIG_FXOS8700_TRIGGER_GLOBAL_THREAD)
 	data->work.handler = fxos8700_work_handler;
 	data->dev = dev;
@@ -358,8 +348,7 @@ int fxos8700_trigger_init(struct device *dev)
 	ctrl_reg5 |= FXOS8700_MOTION_MASK;
 #endif
 
-	if (i2c_reg_write_byte(data->i2c, config->i2c_address,
-			       FXOS8700_REG_CTRLREG5, ctrl_reg5)) {
+	if (fxos8700_write(data->bus, FXOS8700_REG_CTRLREG5, ctrl_reg5)) {
 		LOG_ERR("Could not configure interrupt pin routing");
 		return -EIO;
 	}
@@ -388,7 +377,7 @@ int fxos8700_trigger_init(struct device *dev)
 
 	gpio_pin_configure(data->gpio, config->gpio_pin,
 			   GPIO_DIR_IN | GPIO_INT | GPIO_INT_EDGE |
-			   GPIO_INT_ACTIVE_LOW | GPIO_INT_DEBOUNCE);
+				   GPIO_INT_ACTIVE_LOW | GPIO_INT_DEBOUNCE);
 
 	gpio_init_callback(&data->gpio_cb, fxos8700_gpio_callback,
 			   BIT(config->gpio_pin));
