@@ -24,7 +24,8 @@ int fxos8700_set_odr(struct device *dev, const struct sensor_value *val)
 {
 	const struct fxos8700_config *config = dev->config->config_info;
 	struct fxos8700_data *data = dev->driver_data;
-	s32_t dr = val->val1;
+	volatile u8_t dr, mask = FXOS8700_CTRLREG1_DR_MASK,
+			  reg = FXOS8700_REG_CTRLREG1;
 
 #ifdef CONFIG_FXOS8700_MODE_HYBRID
 	/* ODR is halved in hybrid mode */
@@ -71,9 +72,7 @@ int fxos8700_set_odr(struct device *dev, const struct sensor_value *val)
 
 	LOG_DBG("Set ODR to 0x%x", (u8_t)dr);
 
-	return fxos8700_reg_update_byte(data->bus,
-				   FXOS8700_REG_CTRLREG1,
-				   FXOS8700_CTRLREG1_DR_MASK, (u8_t)dr);
+	return fxos8700_reg_update_byte(data->bus, reg, mask, (u8_t)dr);
 }
 
 static int fxos8700_set_mt_ths(struct device *dev,
@@ -92,9 +91,8 @@ static int fxos8700_set_mt_ths(struct device *dev,
 
 	LOG_DBG("Set FF_MT_THS to %d", (u8_t)ths);
 
-	return fxos8700_reg_update_byte(data->bus,
-				   FXOS8700_REG_FF_MT_THS,
-				   FXOS8700_FF_MT_THS_MASK, (u8_t)ths);
+	return fxos8700_reg_update_byte(data->bus, FXOS8700_REG_FF_MT_THS,
+					FXOS8700_FF_MT_THS_MASK, (u8_t)ths);
 #else
 	return -ENOTSUP;
 #endif
@@ -104,19 +102,65 @@ static int fxos8700_attr_set(struct device *dev, enum sensor_channel chan,
 			     enum sensor_attribute attr,
 			     const struct sensor_value *val)
 {
-	if (chan != SENSOR_CHAN_ALL) {
+	struct fxos8700_data *data = dev->driver_data;
+	enum fxos8700_power power = FXOS8700_POWER_STANDBY;
+	int ret = 0;
+
+	switch (chan)
+	{
+	case SENSOR_CHAN_ALL:
+	case SENSOR_CHAN_ACCEL_X:
+	case SENSOR_CHAN_ACCEL_Y:
+	case SENSOR_CHAN_ACCEL_Z:
+	case SENSOR_CHAN_ACCEL_XYZ:
+	case SENSOR_CHAN_MAGN_X:
+	case SENSOR_CHAN_MAGN_Y:
+	case SENSOR_CHAN_MAGN_Z:
+	case SENSOR_CHAN_MAGN_XYZ:
+		break;
+	default:
 		return -ENOTSUP;
 	}
+	k_sem_take(&data->sem, K_FOREVER);
+	if (fxos8700_get_power(dev, &power)) {
+		LOG_ERR("Could not get power mode");
+		ret = -EIO;
+		goto exit;
+	}
 
+	/* Put the sensor in standby mode */
+	if (fxos8700_set_power(dev, FXOS8700_POWER_STANDBY)) {
+		LOG_ERR("Could not set standby mode");
+		ret = -EIO;
+		goto exit;
+	}
 	if (attr == SENSOR_ATTR_SAMPLING_FREQUENCY) {
-		return fxos8700_set_odr(dev, val);
+		ret = fxos8700_set_odr(dev, val);
+		if (ret) {
+			LOG_ERR("Could not set sampling frequency");
+			goto exit;
+		}
 	} else if (attr == SENSOR_ATTR_SLOPE_TH) {
-		return fxos8700_set_mt_ths(dev, val);
+		ret = fxos8700_set_mt_ths(dev, val);
+		if(ret){
+			LOG_ERR("Could not set slope threshold");
+			goto exit;
+		}
 	} else {
-		return -ENOTSUP;
+		ret = -ENOTSUP;
+		goto exit;
+	}
+	/* Restore the previous power mode */
+	if (fxos8700_set_power(dev, power)) {
+		LOG_ERR("Could not restore power mode");
+		ret = -EIO;
+		goto exit;
 	}
 
-	return 0;
+exit:
+	k_sem_give(&data->sem);
+
+	return ret;
 }
 
 static int fxos8700_sample_fetch(struct device *dev, enum sensor_channel chan)
@@ -144,8 +188,7 @@ static int fxos8700_sample_fetch(struct device *dev, enum sensor_channel chan)
 
 	__ASSERT(num_bytes <= sizeof(buffer), "Too many bytes to read");
 
-	if (fxos8700_write(data->bus, config->start_addr,
-			   buffer, num_bytes)) {
+	if (fxos8700_read(data->bus, config->start_addr, buffer, num_bytes)) {
 		LOG_ERR("Could not fetch sample");
 		ret = -EIO;
 		goto exit;
@@ -166,8 +209,7 @@ static int fxos8700_sample_fetch(struct device *dev, enum sensor_channel chan)
 	}
 
 #ifdef CONFIG_FXOS8700_TEMP
-	if (fxos8700_read(data->bus, FXOS8700_REG_TEMP,
-			      &data->temp, 1)) {
+	if (fxos8700_read(data->bus, FXOS8700_REG_TEMP, &data->temp, 1)) {
 		LOG_ERR("Could not fetch temperature");
 		ret = -EIO;
 		goto exit;
@@ -345,12 +387,10 @@ static int fxos8700_channel_get(struct device *dev, enum sensor_channel chan,
 
 int fxos8700_get_power(struct device *dev, enum fxos8700_power *power)
 {
-	const struct fxos8700_config *config = dev->config->config_info;
 	struct fxos8700_data *data = dev->driver_data;
 	u8_t val = *power;
 
-	if (fxos8700_read(data->bus,
-			      FXOS8700_REG_CTRLREG1, &val,1)) {
+	if (fxos8700_read(data->bus, FXOS8700_REG_CTRLREG1, &val, 1)) {
 		LOG_ERR("Could not get power setting");
 		return -EIO;
 	}
@@ -360,15 +400,20 @@ int fxos8700_get_power(struct device *dev, enum fxos8700_power *power)
 	return 0;
 }
 
-int fxos8700_reg_update_byte(struct device *dev,
-					   u8_t reg_addr, u8_t mask, u8_t value)
+volatile static u8_t new_vol_val = 0;
+int fxos8700_reg_update_byte(struct device *dev, u8_t reg_addr, u8_t mask,
+			     u8_t value)
 {
+	LOG_INF("updating reg addr:%d val:%d mask:%d", reg_addr, value, mask);
+	volatile u8_t m = mask, v = value;
 	u8_t old_value, new_value;
 	int rc;
-
 	rc = fxos8700_read(dev, reg_addr, &old_value, 1);
 	if (rc != 0) {
 		return rc;
+	}
+	if (m != mask || v != value) {
+		LOG_ERR("wtf");
 	}
 
 	new_value = (old_value & ~mask) | (value & mask);
@@ -376,17 +421,29 @@ int fxos8700_reg_update_byte(struct device *dev,
 		return 0;
 	}
 
-	return fxos8700_write(dev, reg_addr, new_value, 1);
+	LOG_INF("updating reg addr:%d new:%x old:%x", reg_addr,
+		new_value & 0x38, old_value & 0x38);
+
+	new_vol_val = new_value;
+	rc = fxos8700_write(dev, reg_addr, &new_value, 1);
+	if (rc != 0) {
+		return rc;
+	}
+	rc = fxos8700_read(dev, reg_addr, &old_value, 1);
+	if (rc != 0) {
+		return rc;
+	}
+	LOG_INF("validating reg addr:%d new:%x old:%x", reg_addr,
+		new_value & 0x38, old_value & 0x38);
+	return 0;
 }
 
 int fxos8700_set_power(struct device *dev, enum fxos8700_power power)
 {
-	const struct fxos8700_config *config = dev->config->config_info;
 	struct fxos8700_data *data = dev->driver_data;
 
-	return fxos8700_reg_update_byte(data->bus,
-				   FXOS8700_REG_CTRLREG1,
-				   FXOS8700_CTRLREG1_ACTIVE_MASK, power);
+	return fxos8700_reg_update_byte(data->bus, FXOS8700_REG_CTRLREG1,
+					FXOS8700_CTRLREG1_ACTIVE_MASK, power);
 }
 
 static int fxos8700_init_interface(struct device *dev)
@@ -418,7 +475,8 @@ static int fxos8700_init(struct device *dev)
 		return -EINVAL;
 	}
 
-	struct sensor_value odr = { .val1 = 6, .val2 = 250000 };
+	LOG_INF("INIT FXOS8700");
+	struct sensor_value odr = { .val1 = 200, .val2 = 0 };
 	struct device *rst;
 
 	if (config->reset_name) {
@@ -447,9 +505,8 @@ static int fxos8700_init(struct device *dev)
 		 * master. Therefore, do not check the return code of
 		 * the I2C transaction.
 		 */
-		fxos8700_write(data->bus,
-				   FXOS8700_REG_CTRLREG2,
-				   FXOS8700_CTRLREG2_RST_MASK,1);
+		fxos8700_write(data->bus, FXOS8700_REG_CTRLREG2,
+			       FXOS8700_CTRLREG2_RST_MASK, 1);
 	}
 
 	/* The sensor requires us to wait 1 ms after a reset before
@@ -462,8 +519,7 @@ static int fxos8700_init(struct device *dev)
 	 * compatible device and not some other type of device that happens to
 	 * have the same I2C address.
 	 */
-	if (fxos8700_read(data->bus,
-			      FXOS8700_REG_WHOAMI, &data->whoami,1)) {
+	if (fxos8700_read(data->bus, FXOS8700_REG_WHOAMI, &data->whoami, 1)) {
 		LOG_ERR("Could not get WHOAMI value");
 		return -EIO;
 	}
@@ -492,17 +548,17 @@ static int fxos8700_init(struct device *dev)
 		return -EIO;
 	}
 
-	if (fxos8700_reg_update_byte(
-		    data->bus, FXOS8700_REG_CTRLREG2,
-		    FXOS8700_CTRLREG2_MODS_MASK, config->power_mode)) {
+	if (fxos8700_reg_update_byte(data->bus, FXOS8700_REG_CTRLREG2,
+				     FXOS8700_CTRLREG2_MODS_MASK,
+				     config->power_mode)) {
 		LOG_ERR("Could not set power scheme");
 		return -EIO;
 	}
 
 	/* Set the mode (accel-only, mag-only, or hybrid) */
-	if (fxos8700_reg_update_byte(data->bus,
-				FXOS8700_REG_M_CTRLREG1,
-				FXOS8700_M_CTRLREG1_MODE_MASK, config->mode)) {
+	if (fxos8700_reg_update_byte(data->bus, FXOS8700_REG_M_CTRLREG1,
+				     FXOS8700_M_CTRLREG1_MODE_MASK,
+				     config->mode)) {
 		LOG_ERR("Could not set mode");
 		return -EIO;
 	}
@@ -510,18 +566,17 @@ static int fxos8700_init(struct device *dev)
 	/* Set hybrid autoincrement so we can read accel and mag channels in
 	 * one I2C transaction.
 	 */
-	if (fxos8700_reg_update_byte(data->bus,
-				FXOS8700_REG_M_CTRLREG2,
-				FXOS8700_M_CTRLREG2_AUTOINC_MASK,
-				FXOS8700_M_CTRLREG2_AUTOINC_MASK)) {
+	if (fxos8700_reg_update_byte(data->bus, FXOS8700_REG_M_CTRLREG2,
+				     FXOS8700_M_CTRLREG2_AUTOINC_MASK,
+				     FXOS8700_M_CTRLREG2_AUTOINC_MASK)) {
 		LOG_ERR("Could not set hybrid autoincrement");
 		return -EIO;
 	}
 
 	/* Set the full-scale range */
-	if (fxos8700_reg_update_byte(data->bus,
-				FXOS8700_REG_XYZ_DATA_CFG,
-				FXOS8700_XYZ_DATA_CFG_FS_MASK, config->range)) {
+	if (fxos8700_reg_update_byte(data->bus, FXOS8700_REG_XYZ_DATA_CFG,
+				     FXOS8700_XYZ_DATA_CFG_FS_MASK,
+				     config->range)) {
 		LOG_ERR("Could not set range");
 		return -EIO;
 	}

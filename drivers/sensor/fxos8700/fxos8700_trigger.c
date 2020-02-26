@@ -59,8 +59,8 @@ static int fxos8700_handle_pulse_int(struct device *dev)
 
 	k_sem_take(&data->sem, K_FOREVER);
 
-	if (fxos8700_read(data->bus, FXOS8700_REG_PULSE_SRC,
-			      &pulse_source, 1)) {
+	if (fxos8700_read(data->bus, FXOS8700_REG_PULSE_SRC, &pulse_source,
+			  1)) {
 		LOG_ERR("Could not read pulse source");
 	}
 
@@ -96,8 +96,8 @@ static int fxos8700_handle_motion_int(struct device *dev)
 
 	k_sem_take(&data->sem, K_FOREVER);
 
-	if (fxos8700_read(data->bus, FXOS8700_REG_FF_MT_SRC,
-			      &motion_source, 1)) {
+	if (fxos8700_read(data->bus, FXOS8700_REG_FF_MT_SRC, &motion_source,
+			  1)) {
 		LOG_ERR("Could not read pulse source");
 	}
 
@@ -121,8 +121,7 @@ static void fxos8700_handle_int(void *arg)
 
 	k_sem_take(&data->sem, K_FOREVER);
 
-	if (fxos8700_read(data->bus, FXOS8700_REG_INT_SOURCE,
-			      &int_source, 1)) {
+	if (fxos8700_read(data->bus, FXOS8700_REG_INT_SOURCE, &int_source, 1)) {
 		LOG_ERR("Could not read interrupt source");
 		int_source = 0U;
 	}
@@ -229,7 +228,7 @@ int fxos8700_trigger_set(struct device *dev, const struct sensor_trigger *trig,
 
 	/* Configure the sensor interrupt */
 	if (fxos8700_reg_update_byte(data->bus, FXOS8700_REG_CTRLREG4, mask,
-				handler ? mask : 0)) {
+				     handler ? mask : 0)) {
 		LOG_ERR("Could not configure interrupt");
 		ret = -EIO;
 		goto exit;
@@ -254,38 +253,38 @@ static int fxos8700_pulse_init(struct device *dev)
 	const struct fxos8700_config *config = dev->config->config_info;
 	struct fxos8700_data *data = dev->driver_data;
 
-	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_CFG, config->pulse_cfg,
-			   1)) {
+	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_CFG,
+			   &config->pulse_cfg, 1)) {
 		return -EIO;
 	}
 
 	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_THSX,
-			   config->pulse_ths[0], 1)) {
+			   &config->pulse_ths[0], 1)) {
 		return -EIO;
 	}
 
 	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_THSY,
-			   config->pulse_ths[1], 1)) {
+			   &config->pulse_ths[1], 1)) {
 		return -EIO;
 	}
 
 	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_THSZ,
-			   config->pulse_ths[2], 1)) {
+			   &config->pulse_ths[2], 1)) {
 		return -EIO;
 	}
 
 	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_TMLT,
-			   config->pulse_tmlt, 1)) {
+			   &config->pulse_tmlt, 1)) {
 		return -EIO;
 	}
 
 	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_LTCY,
-			   config->pulse_ltcy, 1)) {
+			   &config->pulse_ltcy, 1)) {
 		return -EIO;
 	}
 
 	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_WIND,
-			   config->pulse_wind, 1)) {
+			   &config->pulse_wind, 1)) {
 		return -EIO;
 	}
 
@@ -301,10 +300,11 @@ static int fxos8700_motion_init(struct device *dev)
 
 	/* Set Mode 4, Motion detection with ELE = 1, OAE = 1 */
 	if (fxos8700_write(data->bus, FXOS8700_REG_FF_MT_CFG,
-			   FXOS8700_FF_MT_CFG_ELE | FXOS8700_FF_MT_CFG_OAE |
-				   FXOS8700_FF_MT_CFG_ZEFE |
-				   FXOS8700_FF_MT_CFG_YEFE |
-				   FXOS8700_FF_MT_CFG_XEFE)) {
+			   &(FXOS8700_FF_MT_CFG_ELE | FXOS8700_FF_MT_CFG_OAE |
+			    FXOS8700_FF_MT_CFG_ZEFE | FXOS8700_FF_MT_CFG_YEFE |
+			    FXOS8700_FF_MT_CFG_XEFE)
+				)
+		) {
 		return -EIO;
 	}
 
@@ -348,7 +348,7 @@ int fxos8700_trigger_init(struct device *dev)
 	ctrl_reg5 |= FXOS8700_MOTION_MASK;
 #endif
 
-	if (fxos8700_write(data->bus, FXOS8700_REG_CTRLREG5, ctrl_reg5)) {
+	if (fxos8700_write(data->bus, FXOS8700_REG_CTRLREG5, &ctrl_reg5, 1)) {
 		LOG_ERR("Could not configure interrupt pin routing");
 		return -EIO;
 	}
