@@ -5,10 +5,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "fxos8700.h"
+#include "augufxos8700.h"
 #include <logging/log.h>
 
-LOG_MODULE_DECLARE(FXOS8700, CONFIG_SENSOR_LOG_LEVEL);
+LOG_MODULE_DECLARE(AUGU_FXOS8700, CONFIG_SENSOR_LOG_LEVEL);
 
 static void fxos8700_gpio_callback(struct device *dev, struct gpio_callback *cb,
 				   u32_t pin_mask)
@@ -22,9 +22,9 @@ static void fxos8700_gpio_callback(struct device *dev, struct gpio_callback *cb,
 
 	gpio_pin_disable_callback(dev, data->gpio_pin);
 
-#if defined(CONFIG_FXOS8700_TRIGGER_OWN_THREAD)
+#if defined(CONFIG_AUGU_FXOS8700_TRIGGER_OWN_THREAD)
 	k_sem_give(&data->trig_sem);
-#elif defined(CONFIG_FXOS8700_TRIGGER_GLOBAL_THREAD)
+#elif defined(CONFIG_AUGU_FXOS8700_TRIGGER_GLOBAL_THREAD)
 	k_work_submit(&data->work);
 #endif
 }
@@ -45,7 +45,7 @@ static int fxos8700_handle_drdy_int(struct device *dev)
 	return 0;
 }
 
-#ifdef CONFIG_FXOS8700_PULSE
+#ifdef CONFIG_AUGU_FXOS8700_PULSE
 static int fxos8700_handle_pulse_int(struct device *dev)
 {
 	const struct fxos8700_config *config = dev->config->config_info;
@@ -59,14 +59,14 @@ static int fxos8700_handle_pulse_int(struct device *dev)
 
 	k_sem_take(&data->sem, K_FOREVER);
 
-	if (fxos8700_read(data->bus, FXOS8700_REG_PULSE_SRC, &pulse_source,
+	if (fxos8700_read(data->bus, AUGU_FXOS8700_REG_PULSE_SRC, &pulse_source,
 			  1)) {
 		LOG_ERR("Could not read pulse source");
 	}
 
 	k_sem_give(&data->sem);
 
-	if (pulse_source & FXOS8700_PULSE_SRC_DPE) {
+	if (pulse_source & AUGU_FXOS8700_PULSE_SRC_DPE) {
 		pulse_trig.type = SENSOR_TRIG_DOUBLE_TAP;
 		handler = data->double_tap_handler;
 	} else {
@@ -82,7 +82,7 @@ static int fxos8700_handle_pulse_int(struct device *dev)
 }
 #endif
 
-#ifdef CONFIG_FXOS8700_MOTION
+#ifdef CONFIG_AUGU_FXOS8700_MOTION
 static int fxos8700_handle_motion_int(struct device *dev)
 {
 	const struct fxos8700_config *config = dev->config->config_info;
@@ -96,7 +96,7 @@ static int fxos8700_handle_motion_int(struct device *dev)
 
 	k_sem_take(&data->sem, K_FOREVER);
 
-	if (fxos8700_read(data->bus, FXOS8700_REG_FF_MT_SRC, &motion_source,
+	if (fxos8700_read(data->bus, AUGU_FXOS8700_REG_FF_MT_SRC, &motion_source,
 			  1)) {
 		LOG_ERR("Could not read pulse source");
 	}
@@ -121,23 +121,25 @@ static void fxos8700_handle_int(void *arg)
 
 	k_sem_take(&data->sem, K_FOREVER);
 
-	if (fxos8700_read(data->bus, FXOS8700_REG_INT_SOURCE, &int_source, 1)) {
+	if (fxos8700_read(data->bus, AUGU_FXOS8700_REG_INT_SOURCE, &int_source, 1)) {
 		LOG_ERR("Could not read interrupt source");
 		int_source = 0U;
 	}
 
+	LOG_ERR("fxos8700_handle_int $$$$$");
+
 	k_sem_give(&data->sem);
 
-	if (int_source & FXOS8700_DRDY_MASK) {
+	if (int_source & AUGU_FXOS8700_DRDY_MASK) {
 		fxos8700_handle_drdy_int(dev);
 	}
-#ifdef CONFIG_FXOS8700_PULSE
-	if (int_source & FXOS8700_PULSE_MASK) {
+#ifdef CONFIG_AUGU_FXOS8700_PULSE
+	if (int_source & AUGU_FXOS8700_PULSE_MASK) {
 		fxos8700_handle_pulse_int(dev);
 	}
 #endif
-#ifdef CONFIG_FXOS8700_MOTION
-	if (int_source & FXOS8700_MOTION_MASK) {
+#ifdef CONFIG_AUGU_FXOS8700_MOTION
+	if (int_source & AUGU_FXOS8700_MOTION_MASK) {
 		fxos8700_handle_motion_int(dev);
 	}
 #endif
@@ -145,7 +147,7 @@ static void fxos8700_handle_int(void *arg)
 	gpio_pin_enable_callback(data->gpio, config->gpio_pin);
 }
 
-#ifdef CONFIG_FXOS8700_TRIGGER_OWN_THREAD
+#ifdef CONFIG_AUGU_FXOS8700_TRIGGER_OWN_THREAD
 static void fxos8700_thread_main(void *arg1, void *unused1, void *unused2)
 {
 	struct device *dev = (struct device *)arg1;
@@ -161,7 +163,7 @@ static void fxos8700_thread_main(void *arg1, void *unused1, void *unused2)
 }
 #endif
 
-#ifdef CONFIG_FXOS8700_TRIGGER_GLOBAL_THREAD
+#ifdef CONFIG_AUGU_FXOS8700_TRIGGER_GLOBAL_THREAD
 static void fxos8700_work_handler(struct k_work *work)
 {
 	struct fxos8700_data *data =
@@ -176,30 +178,32 @@ int fxos8700_trigger_set(struct device *dev, const struct sensor_trigger *trig,
 {
 	const struct fxos8700_config *config = dev->config->config_info;
 	struct fxos8700_data *data = dev->driver_data;
-	enum fxos8700_power power = FXOS8700_POWER_STANDBY;
+	enum fxos8700_power power = AUGU_FXOS8700_POWER_STANDBY;
 	u8_t mask;
 	int ret = 0;
 
 	k_sem_take(&data->sem, K_FOREVER);
 
+	LOG_INF("fxos8700_trigger_set - START !!!!");
+
 	switch (trig->type) {
 	case SENSOR_TRIG_DATA_READY:
-		mask = FXOS8700_DRDY_MASK;
+		mask = AUGU_FXOS8700_DRDY_MASK;
 		data->drdy_handler = handler;
 		break;
-#ifdef CONFIG_FXOS8700_PULSE
+#ifdef CONFIG_AUGU_FXOS8700_PULSE
 	case SENSOR_TRIG_TAP:
-		mask = FXOS8700_PULSE_MASK;
+		mask = AUGU_FXOS8700_PULSE_MASK;
 		data->tap_handler = handler;
 		break;
 	case SENSOR_TRIG_DOUBLE_TAP:
-		mask = FXOS8700_PULSE_MASK;
+		mask = AUGU_FXOS8700_PULSE_MASK;
 		data->double_tap_handler = handler;
 		break;
 #endif
-#ifdef CONFIG_FXOS8700_MOTION
+#ifdef CONFIG_AUGU_FXOS8700_MOTION
 	case SENSOR_TRIG_DELTA:
-		mask = FXOS8700_MOTION_MASK;
+		mask = AUGU_FXOS8700_MOTION_MASK;
 		data->motion_handler = handler;
 		break;
 #endif
@@ -214,20 +218,51 @@ int fxos8700_trigger_set(struct device *dev, const struct sensor_trigger *trig,
 	 * later.
 	 */
 	if (fxos8700_get_power(dev, &power)) {
-		LOG_ERR("Could not get power mode");
+		LOG_ERR("fxos8700_trigger_set - Could not get power mode");
 		ret = -EIO;
 		goto exit;
 	}
 
+	LOG_INF("fxos8700_trigger_set - first get power mode = %d",power);
+
 	/* Put the sensor in standby mode */
-	if (fxos8700_set_power(dev, FXOS8700_POWER_STANDBY)) {
-		LOG_ERR("Could not set standby mode");
+	if (fxos8700_set_power(dev, AUGU_FXOS8700_POWER_STANDBY)) {
+		LOG_ERR("fxos8700_trigger_set - Could not set standby mode");
 		ret = -EIO;
 		goto exit;
+	}
+
+	LOG_INF("fxos8700_trigger_set - set power mode = %d",power);
+	u8_t test_power = 1;
+	if (fxos8700_get_power(dev, &test_power)) {
+		LOG_ERR("fxos8700_trigger_set - Could not get power mode for validation");
+		ret = -EIO;
+		goto exit;
+	}
+
+	LOG_INF("fxos8700_trigger_set - validating power mode = %d (should be STBY)",test_power);
+
+	LOG_INF("fxos8700_trigger_set - mask is %d $$$$$$$$$$$$$",mask);
+	if (handler == 0) {
+		LOG_INF("fxos8700_trigger_set - handler is NULL!!!!!!!");
 	}
 
 	/* Configure the sensor interrupt */
-	if (fxos8700_reg_update_byte(data->bus, FXOS8700_REG_CTRLREG4, mask,
+	if (fxos8700_reg_update_byte(data->bus, AUGU_FXOS8700_REG_CTRLREG4, mask,
+				     handler ? mask : 0)) {
+		LOG_ERR("Could not configure interrupt");
+		ret = -EIO;
+		goto exit;
+	}
+
+	LOG_INF("Setting CTRLREG4 to 0x%X",handler ? mask : 0);
+	u8_t test = 0;
+	if (fxos8700_read(data->bus, AUGU_FXOS8700_REG_CTRLREG4, &test, 1) != 0) {
+		LOG_ERR("failed to read CTRLREG4 after set");
+	}
+	LOG_INF("validating CTRLREG4 - 0x%X",test);
+
+	if (fxos8700_reg_update_byte(data->bus, AUGU_FXOS8700_REG_CTRLREG4, mask,
 				     handler ? mask : 0)) {
 		LOG_ERR("Could not configure interrupt");
 		ret = -EIO;
@@ -247,43 +282,43 @@ exit:
 	return ret;
 }
 
-#ifdef CONFIG_FXOS8700_PULSE
+#ifdef CONFIG_AUGU_FXOS8700_PULSE
 static int fxos8700_pulse_init(struct device *dev)
 {
 	const struct fxos8700_config *config = dev->config->config_info;
 	struct fxos8700_data *data = dev->driver_data;
 
-	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_CFG,
+	if (fxos8700_write(data->bus, AUGU_FXOS8700_REG_PULSE_CFG,
 			   &config->pulse_cfg, 1)) {
 		return -EIO;
 	}
 
-	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_THSX,
+	if (fxos8700_write(data->bus, AUGU_FXOS8700_REG_PULSE_THSX,
 			   &config->pulse_ths[0], 1)) {
 		return -EIO;
 	}
 
-	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_THSY,
+	if (fxos8700_write(data->bus, AUGU_FXOS8700_REG_PULSE_THSY,
 			   &config->pulse_ths[1], 1)) {
 		return -EIO;
 	}
 
-	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_THSZ,
+	if (fxos8700_write(data->bus, AUGU_FXOS8700_REG_PULSE_THSZ,
 			   &config->pulse_ths[2], 1)) {
 		return -EIO;
 	}
 
-	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_TMLT,
+	if (fxos8700_write(data->bus, AUGU_FXOS8700_REG_PULSE_TMLT,
 			   &config->pulse_tmlt, 1)) {
 		return -EIO;
 	}
 
-	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_LTCY,
+	if (fxos8700_write(data->bus, AUGU_FXOS8700_REG_PULSE_LTCY,
 			   &config->pulse_ltcy, 1)) {
 		return -EIO;
 	}
 
-	if (fxos8700_write(data->bus, FXOS8700_REG_PULSE_WIND,
+	if (fxos8700_write(data->bus, AUGU_FXOS8700_REG_PULSE_WIND,
 			   &config->pulse_wind, 1)) {
 		return -EIO;
 	}
@@ -292,25 +327,25 @@ static int fxos8700_pulse_init(struct device *dev)
 }
 #endif
 
-#ifdef CONFIG_FXOS8700_MOTION
+#ifdef CONFIG_AUGU_FXOS8700_MOTION
 static int fxos8700_motion_init(struct device *dev)
 {
 	const struct fxos8700_config *config = dev->config->config_info;
 	struct fxos8700_data *data = dev->driver_data;
 
 	/* Set Mode 4, Motion detection with ELE = 1, OAE = 1 */
-	if (fxos8700_write(data->bus, FXOS8700_REG_FF_MT_CFG,
-			   &(FXOS8700_FF_MT_CFG_ELE | FXOS8700_FF_MT_CFG_OAE |
-			    FXOS8700_FF_MT_CFG_ZEFE | FXOS8700_FF_MT_CFG_YEFE |
-			    FXOS8700_FF_MT_CFG_XEFE)
+	if (fxos8700_write(data->bus, AUGU_FXOS8700_REG_FF_MT_CFG,
+			   &(AUGU_FXOS8700_FF_MT_CFG_ELE | AUGU_FXOS8700_FF_MT_CFG_OAE |
+			    AUGU_FXOS8700_FF_MT_CFG_ZEFE | AUGU_FXOS8700_FF_MT_CFG_YEFE |
+			    AUGU_FXOS8700_FF_MT_CFG_XEFE)
 				)
 		) {
 		return -EIO;
 	}
 
 	/* Set motion threshold to maximimum */
-	if (fxos8700_write(data->bus, FXOS8700_REG_FF_MT_THS,
-			   FXOS8700_REG_FF_MT_THS)) {
+	if (fxos8700_write(data->bus, AUGU_FXOS8700_REG_FF_MT_THS,
+			   AUGU_FXOS8700_REG_FF_MT_THS)) {
 		return -EIO;
 	}
 
@@ -324,42 +359,56 @@ int fxos8700_trigger_init(struct device *dev)
 	struct fxos8700_data *data = dev->driver_data;
 	u8_t ctrl_reg5;
 
-#if defined(CONFIG_FXOS8700_TRIGGER_OWN_THREAD)
+#if defined(CONFIG_AUGU_FXOS8700_TRIGGER_OWN_THREAD)
 	k_sem_init(&data->trig_sem, 0, UINT_MAX);
 	k_thread_create(&data->thread, data->thread_stack,
-			CONFIG_FXOS8700_THREAD_STACK_SIZE, fxos8700_thread_main,
+			CONFIG_AUGU_FXOS8700_THREAD_STACK_SIZE, fxos8700_thread_main,
 			dev, 0, NULL,
-			K_PRIO_COOP(CONFIG_FXOS8700_THREAD_PRIORITY), 0,
+			K_PRIO_COOP(CONFIG_AUGU_FXOS8700_THREAD_PRIORITY), 0,
 			K_NO_WAIT);
-#elif defined(CONFIG_FXOS8700_TRIGGER_GLOBAL_THREAD)
+#elif defined(CONFIG_AUGU_FXOS8700_TRIGGER_GLOBAL_THREAD)
 	data->work.handler = fxos8700_work_handler;
 	data->dev = dev;
 #endif
 
 	/* Route the interrupts to INT1/INT2 pins */
 	ctrl_reg5 = 0U;
-#if CONFIG_FXOS8700_DRDY_INT1
-	ctrl_reg5 |= FXOS8700_DRDY_MASK;
+#if CONFIG_AUGU_FXOS8700_DRDY_INT1
+	ctrl_reg5 |= AUGU_FXOS8700_DRDY_MASK;
 #endif
-#if CONFIG_FXOS8700_PULSE_INT1
-	ctrl_reg5 |= FXOS8700_PULSE_MASK;
+#if CONFIG_AUGU_FXOS8700_PULSE_INT1
+	ctrl_reg5 |= AUGU_FXOS8700_PULSE_MASK;
 #endif
-#if CONFIG_FXOS8700_MOTION_INT1
-	ctrl_reg5 |= FXOS8700_MOTION_MASK;
+#if CONFIG_AUGU_FXOS8700_MOTION_INT1
+	ctrl_reg5 |= AUGU_FXOS8700_MOTION_MASK;
 #endif
 
-	if (fxos8700_write(data->bus, FXOS8700_REG_CTRLREG5, &ctrl_reg5, 1)) {
+	if (fxos8700_write(data->bus, AUGU_FXOS8700_REG_CTRLREG5, &ctrl_reg5, 1)) {
 		LOG_ERR("Could not configure interrupt pin routing");
 		return -EIO;
 	}
 
-#ifdef CONFIG_FXOS8700_PULSE
+	u8_t test = 0; 
+	if (fxos8700_read(data->bus, AUGU_FXOS8700_REG_CTRLREG5, &test, 1)) {
+		LOG_ERR("Could not read int pin routing reg!!");
+		return -EIO;
+	}
+
+	if (test != ctrl_reg5) {
+		LOG_ERR("CTRLREG5 not as expected!! ctrl_reg5 = 0x%X, and test = 0x%X",ctrl_reg5, test);
+		return -EIO;
+	}
+	else {
+		LOG_INF("CTRLREG5 as expected :)) !! ctrl_reg5 = 0x%X, and test = 0x%X",ctrl_reg5, test);
+	}
+
+#ifdef CONFIG_AUGU_FXOS8700_PULSE
 	if (fxos8700_pulse_init(dev)) {
 		LOG_ERR("Could not configure pulse");
 		return -EIO;
 	}
 #endif
-#ifdef CONFIG_FXOS8700_MOTION
+#ifdef CONFIG_AUGU_FXOS8700_MOTION
 	if (fxos8700_motion_init(dev)) {
 		LOG_ERR("Could not configure motion");
 		return -EIO;

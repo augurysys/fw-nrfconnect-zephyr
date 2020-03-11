@@ -1,13 +1,13 @@
 # Copyright (c) 2018, NXP
 # SPDX-License-Identifier: Apache-2.0
 
-title: FXOS8700 6-axis accelerometer/magnetometer
+title: AUGU_FXOS8700 6-axis accelerometer/magnetometer
 
 description: |
-    This is a representation of the FXOS8700 6-axis accelerometer/magnetometer
+    This is a representation of the AUGU_FXOS8700 6-axis accelerometer/magnetometer
     sensor
 
-compatible: "nxp,fxos8700"
+compatible: "nxp,augufxos8700"
 
 include: spi-device.yaml
 
