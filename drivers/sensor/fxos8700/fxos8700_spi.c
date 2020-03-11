@@ -91,15 +91,15 @@ int fxos8700_spi_cs_gpios_init(struct fxos8700_data *data)
 		DT_INST_0_NXP_FXOS8700_CS_GPIOS_PIN);
 
 	//TODO use ifdef and add to KConfig
-//	struct device *vdd = device_get_binding("GPIO_0");
-//	if (!vdd) {
-//		LOG_ERR("Could not find vdd GPIO device");
-//		return -EINVAL;
-//	}
+	struct device *vdd = device_get_binding("GPIO_0");
+	if (!vdd) {
+		LOG_ERR("Could not find vdd GPIO device");
+		return -EINVAL;
+	}
 
-//	gpio_pin_configure(vdd, 25, GPIO_DIR_OUT);
-//	gpio_pin_write(vdd, 25, 0);
-//	k_busy_wait(USEC_PER_MSEC);
+	gpio_pin_configure(vdd, 25, GPIO_DIR_OUT);
+	gpio_pin_write(vdd, 25, 0);
+	k_busy_wait(USEC_PER_MSEC);
 
 	return 0;
 }
